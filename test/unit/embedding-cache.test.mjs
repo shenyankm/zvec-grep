@@ -120,7 +120,11 @@ test("corruption and missing records recompute safely; writes are atomic", async
     const retry = await cache();
     await retry.model.embed([text("alpha")]);
     assert.equal(retry.stats.computed, 1);
-    assert.equal(retry.stats.errors, 1);
+    assert.equal(
+      retry.stats.errors,
+      2,
+      "optimistic and locked reads both validate the corrupt record",
+    );
     JSON.parse(await readFile(path, "utf8"));
   }
   await rm(path);
@@ -194,11 +198,20 @@ test("multiple processes publish complete records without partial files", async 
     };
     const cache = await repositoryEmbeddingCache(model, {rootPaths:[{absolutePath:${JSON.stringify(root)}}]});
     await cache.model.embed([{kind:"text",text:"cross-process"}]);
+    console.log(JSON.stringify(cache.stats));
   `;
-  await Promise.all([
+  const processes = await Promise.all([
     exec(process.execPath, ["--input-type=module", "-e", script]),
     exec(process.execPath, ["--input-type=module", "-e", script]),
   ]);
+  assert.equal(
+    processes.reduce(
+      (sum, result) => sum + JSON.parse(result.stdout).computed,
+      0,
+    ),
+    1,
+    "a cross-process miss is inferred only once",
+  );
   const verified = await cache();
   await verified.model.embed([text("cross-process")]);
   assert.equal(verified.stats.hits, 1);
@@ -255,6 +268,30 @@ test("invalid model output and cache write failures cannot publish misleading ve
   assert.equal(result.vectors.length, 1);
   assert.equal(writable.stats.computed, 1);
   assert.ok(writable.stats.errors > 0);
+});
+
+test("automatic finish enforces the cache budget without changing returned vectors", async (t) => {
+  const { cache } = await fixture(t);
+  const previous = process.env.ZVEC_GREP_VECTOR_CACHE_MAX_BYTES;
+  process.env.ZVEC_GREP_VECTOR_CACHE_MAX_BYTES = "1000";
+  t.after(() =>
+    previous === undefined
+      ? delete process.env.ZVEC_GREP_VECTOR_CACHE_MAX_BYTES
+      : (process.env.ZVEC_GREP_VECTOR_CACHE_MAX_BYTES = previous),
+  );
+  const cached = await cache();
+  const inputs = Array.from({ length: 32 }, (_, index) =>
+    text(`budget input ${index}`),
+  );
+  const result = await cached.model.embed(inputs);
+  await cached.finish();
+  const { maintainVectorCache } =
+    await import("../../dist/engine/pipeline/indexing/cache-maintenance.js");
+  assert.ok((await maintainVectorCache("status")).bytes <= 1000);
+  assert.equal(result.vectors.length, inputs.length);
+  assert.equal(cached.stats.computed, inputs.length);
+  process.env.ZVEC_GREP_VECTOR_CACHE_MAX_BYTES = "0";
+  assert.equal(await cache(), undefined);
 });
 
 test("failed computation is never published and can be retried", async (t) => {

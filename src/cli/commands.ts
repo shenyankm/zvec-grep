@@ -77,6 +77,8 @@ import {
   withRemoteEmbeddingOperationPermit,
 } from "./auth.js";
 
+import { maintainVectorCache } from "../engine/pipeline/indexing/cache-maintenance.js";
+
 const DEFAULT_IMPLICIT_EMBEDDING = "local/potion-code-16m-v2";
 
 export async function runParsedCommand(parsed: ParsedArgs): Promise<void> {
@@ -86,6 +88,17 @@ export async function runParsedCommand(parsed: ParsedArgs): Promise<void> {
       return;
     case "index":
       await runIndex(parsed);
+      return;
+    case "cache":
+      console.log(
+        JSON.stringify(
+          await maintainVectorCache(
+            parsed.positionals[0] as "status" | "prune" | "clear",
+          ),
+          null,
+          2,
+        ),
+      );
       return;
     case "status":
       await runStatus(parsed);

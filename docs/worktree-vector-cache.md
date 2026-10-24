@@ -30,11 +30,12 @@ Built-in remote models do not opt in because a model alias/endpoint does not est
 
 - Hits restore both vectors and truncation flags, in original input order. A fully cached operation does not prepare/load the local inference model.
 - Duplicate inputs and concurrent batches within one process share in-flight computations. Cancelling a follower does not cancel an independent owner. Failure or cancellation releases reservations for retry.
-- Separate processes may compute the same simultaneous miss. UUID temporary files plus atomic rename prevent partial published records; there is no cross-process inference lock.
+- Separate processes acquire sorted per-input leases and recheck the cache after acquisition. Normal simultaneous misses are inferred once across processes. A dead local owner is reclaimed; cancellation releases owned leases. A 30-second wait limit or lock I/O failure falls back to computation rather than blocking forever, so duplicate computation remains possible on that fallback path. UUID temporary files and atomic rename prevent partial published records.
 - Reads validate key, vector shape, finite values, truncation metadata, and a payload checksum. Corrupt/missing records recompute. Invalid fresh model results are rejected before publication.
 - Cache discovery/write failures do not turn into a successful-but-empty index or block normal inference. Cache errors are counted, while model/storage failures retain their existing handling.
 - Deleting or rebuilding a worktree index does not delete shared entries. Removing the cache only costs later recomputation; existing indexes are self-contained.
-- There is no automatic eviction in this first version. Monitor disk usage and remove the disposable `embedding-cache-v1` directory when needed, preferably with indexing jobs stopped. No reference-count/GC state is needed because indexes retain their vectors.
+- Automatic pruning runs at index start, completion, and under write pressure. The default budget is **512 MiB** with **30-day** retention, evicting oldest writes first (not LRU). Configure `ZVEC_GREP_VECTOR_CACHE_MAX_BYTES` and `ZVEC_GREP_VECTOR_CACHE_MAX_AGE_DAYS`; a zero-byte budget disables reuse. This is a maintenance budget, not a filesystem quota: concurrent/in-flight or cancelled jobs may temporarily exceed it. Pruning is cancellable and never touches native indexes.
+- `zg --cache status`, `zg --cache prune`, and `zg --cache clear` report JSON and operate only on recognized disposable records. Pruning also removes temporary files left by dead local processes, but preserves live-writer temporary files. Symlinks and unrecognized paths are not followed or deleted. Indexes retain their own vectors, so no reference-count database is needed.
 
 ## Statistics
 
@@ -73,6 +74,8 @@ The acceptance fixture's first worktree infers two unique fragments (`computed: 
 - actual daemon completion and MCP serialization carry cache counters;
 - revision, endpoint, dimensions, full contextual inputs, corruption, cancellation, malformed outputs, and concurrent process publication are handled safely.
 
-Local acceptance on Darwin arm64 / Node v22.23.2 passed the full isolated `npm run check`: ESLint, Prettier, type checking, 456 root tests, 293 unit tests (292 pass, one Windows-only skip), 40 integration tests, nine end-to-end tests, and one package test. Total: 799 tests, 798 pass, one skip, zero failures. Overall source line coverage was 89.93% and branch coverage 85%; `embedding-cache.ts` had 100% line and 93.87% branch coverage. The state-display plugin's separate check also passed (159 pass, two Windows-only skips).
+The original reuse baseline, before quota/lease/ignore-inheritance changes, passed local acceptance on Darwin arm64 / Node v22.23.2 with the full isolated `npm run check`: ESLint, Prettier, type checking, 456 root tests, 293 unit tests (292 pass, one Windows-only skip), 40 integration tests, nine end-to-end tests, and one package test. Total: 799 tests, 798 pass, one skip, zero failures. Overall source line coverage was 89.93% and branch coverage 85%; `embedding-cache.ts` had 100% line and 93.87% branch coverage. The state-display plugin's separate check also passed (159 pass, two Windows-only skips).
+
+For the later quota/lease/ignore-rule changes and actual filesystem/process-kill/native-daemon load verification, see [environment acceptance](environment-verification.md). Run `npm run test:environments` in this checkout; it requires the sibling `pi-zvec-status` checkout with its dependencies installed for the real MCP client.
 
 These are correctness and inference-count checks, not a production wall-clock speedup claim. Real speedups depend on input overlap, model cost, filesystem latency, and native index maintenance.

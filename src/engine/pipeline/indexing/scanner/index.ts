@@ -808,25 +808,26 @@ function matchIgnoreRules(
   isDirectory: boolean,
   rules: readonly IgnoreRule[],
 ): IgnoreMatch {
-  let ignored = false;
-  let matchedNegation = false;
-  let matchedRule: IgnoreRule | undefined;
-
-  for (const rule of rules) {
-    if (!ignoreRuleMatches(rule, relativePath, isDirectory)) {
-      continue;
+  const segments = relativePath.split("/");
+  let match: IgnoreMatch = { ignored: false, matchedNegation: false };
+  // A narrowly included child may reopen traversal, not the ignored parent's other descendants.
+  for (let depth = 1; depth <= segments.length; depth++) {
+    const path = segments.slice(0, depth).join("/");
+    match = { ignored: false, matchedNegation: false };
+    for (const rule of rules) {
+      if (
+        ignoreRuleMatches(rule, path, depth < segments.length || isDirectory)
+      ) {
+        match = {
+          ignored: !rule.negated,
+          matchedNegation: rule.negated,
+          matchedRule: rule,
+        };
+      }
     }
-
-    ignored = !rule.negated;
-    matchedNegation = rule.negated;
-    matchedRule = rule;
+    if (match.ignored) return match;
   }
-
-  return {
-    ignored,
-    matchedNegation,
-    matchedRule,
-  };
+  return match;
 }
 
 function ignoredPathExplicitlyIncluded(
@@ -899,23 +900,10 @@ function ignoreRuleMatches(
     return false;
   }
 
-  if (rule.directoryOnly) {
-    if (rule.anchored || rule.hasSlash) {
-      return pathPatternMatches(rule.pattern, path);
-    }
-
-    return pathContainsMatchingSegment(path, rule.pattern);
-  }
-
-  if (rule.anchored || rule.hasSlash) {
-    return pathPatternMatches(rule.pattern, path);
-  }
-
-  if (isDirectory && pathContainsMatchingSegment(path, rule.pattern)) {
-    return true;
-  }
-
-  return segmentMatches(rule.pattern, basename(path));
+  if (rule.directoryOnly && !isDirectory) return false;
+  return rule.anchored || rule.hasSlash
+    ? pathPatternMatches(rule.pattern, path)
+    : segmentMatches(rule.pattern, basename(path));
 }
 
 function relativeToIgnoreRuleBase(
@@ -934,10 +922,6 @@ function relativeToIgnoreRuleBase(
   return relativePath.startsWith(prefix)
     ? relativePath.slice(prefix.length)
     : null;
-}
-
-function pathContainsMatchingSegment(path: string, pattern: string): boolean {
-  return path.split("/").some((segment) => segmentMatches(pattern, segment));
 }
 
 function segmentMatches(pattern: string, segment: string): boolean {

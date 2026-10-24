@@ -13,7 +13,14 @@ import type {
   EmbeddingCacheStats,
   WorkspaceIndexInfo,
 } from "../../types.js";
-import { defaultHome } from "../../utils/path.js";
+import { setTimeout as delay } from "node:timers/promises";
+import { acquireReadWriteLock, type FileLock } from "../../utils/lock.js";
+import {
+  assertPrivateCacheDirectory,
+  cachePolicy,
+  maintainVectorCache,
+  vectorCacheRoot,
+} from "./cache-maintenance.js";
 import { sha256Text as hash } from "../../utils/hash.js";
 import { replaceFileAtomically } from "../../utils/atomic-file.js";
 
@@ -25,7 +32,14 @@ export async function repositoryEmbeddingCache(
   model: EmbeddingModel,
   workspace: WorkspaceIndexInfo,
   signal?: AbortSignal,
-): Promise<{ model: EmbeddingModel; stats: EmbeddingCacheStats } | undefined> {
+): Promise<
+  | {
+      model: EmbeddingModel;
+      stats: EmbeddingCacheStats;
+      finish: () => Promise<void>;
+    }
+  | undefined
+> {
   // shortcut: remote mutable models and multi-root indexes bypass reuse; extend only with stable identities and per-root namespaces.
   if (!model.info.cacheIdentity || workspace.rootPaths.length !== 1) return;
   signal?.throwIfAborted();
@@ -62,23 +76,37 @@ export async function repositoryEmbeddingCache(
         model.info.limits.maxInputTokens,
       ]),
     );
-    // shortcut: no automatic eviction; add size/age limits when cache growth warrants it.
-    const cacheRoot = join(defaultHome(), "embedding-cache-v1");
+    const policy = cachePolicy();
+    if (policy.maxBytes === 0) return;
+    const cacheRoot = vectorCacheRoot();
     const repository = join(cacheRoot, hash(common));
     const directory = join(repository, identity);
     for (const path of [cacheRoot, repository, directory]) {
       await mkdir(path, { recursive: true, mode: 0o700 });
-      const info = await lstat(path);
-      if (
-        !info.isDirectory() ||
-        (process.getuid && info.uid !== process.getuid()) ||
-        (process.platform !== "win32" && (info.mode & 0o077) !== 0)
-      )
-        return;
+      await assertPrivateCacheDirectory(path);
     }
     signal?.throwIfAborted();
     const stats: EmbeddingCacheStats = { hits: 0, computed: 0, errors: 0 };
-    return { model: new CachedDocumentModel(model, directory, stats), stats };
+    const finish = async () => {
+      if (signal?.aborted) return;
+      try {
+        await maintainVectorCache("prune", signal);
+      } catch {
+        if (!signal?.aborted) stats.errors++;
+      }
+    };
+    await finish();
+    return {
+      model: new CachedDocumentModel(
+        model,
+        directory,
+        stats,
+        finish,
+        policy.maxBytes,
+      ),
+      stats,
+      finish,
+    };
   } catch {
     signal?.throwIfAborted();
     // Cache discovery or permissions must not prevent ordinary indexing.
@@ -88,10 +116,13 @@ export async function repositoryEmbeddingCache(
 
 class CachedDocumentModel extends BaseEmbeddingModel {
   readonly info;
+  private writtenBytes = 0;
   constructor(
     private readonly model: EmbeddingModel,
     private readonly directory: string,
     private readonly stats: EmbeddingCacheStats,
+    private readonly maintain: () => Promise<void>,
+    private readonly maxBytes: number,
   ) {
     super();
     this.info = model.info;
@@ -114,6 +145,7 @@ class CachedDocumentModel extends BaseEmbeddingModel {
       reject: (error: unknown) => void;
     }[] = [];
     const entries: Promise<Entry>[] = [];
+    const locks: FileLock[] = [];
     try {
       const keys = contents.map((content) => hash(JSON.stringify(content)));
       const records = await Promise.all(
@@ -142,29 +174,44 @@ class CachedDocumentModel extends BaseEmbeddingModel {
         }
         entries.push(pending);
       }
-      if (owned.length) {
+      const missing: typeof owned = [];
+      for (const item of [...owned].sort((a, b) =>
+        a.key < b.key ? -1 : a.key > b.key ? 1 : 0,
+      )) {
+        const lock = await this.acquire(item.key, options.signal);
+        if (lock) locks.push(lock);
+        const cached = await this.read(
+          join(this.directory, `${item.key}.json`),
+          item.key,
+        );
+        if (cached) {
+          this.stats.hits++;
+          item.resolve(cached);
+        } else missing.push(item);
+      }
+      if (missing.length) {
         await this.model.prepare?.(options);
         const result = await this.model.embed(
-          owned.map((item) => item.content),
+          missing.map((item) => item.content),
           options,
         );
         options.signal?.throwIfAborted();
         if (
           !Array.isArray(result.vectors) ||
-          result.vectors.length !== owned.length ||
+          result.vectors.length !== missing.length ||
           !Array.isArray(result.truncated) ||
           new Set(result.truncated).size !== result.truncated.length ||
           Array.from(result.truncated).some(
             (index) =>
-              !Number.isInteger(index) || index < 0 || index >= owned.length,
+              !Number.isInteger(index) || index < 0 || index >= missing.length,
           ) ||
           Array.from(result.vectors).some((vector) => !this.validVector(vector))
         ) {
           throw new Error("Embedding cache refused an invalid model result.");
         }
-        this.stats.computed += owned.length;
+        this.stats.computed += missing.length;
         await Promise.all(
-          owned.map(async (item, index) => {
+          missing.map(async (item, index) => {
             const entry = {
               vector: result.vectors[index],
               truncated: result.truncated.includes(index),
@@ -173,6 +220,13 @@ class CachedDocumentModel extends BaseEmbeddingModel {
             item.resolve(entry);
           }),
         );
+      }
+      if (
+        this.writtenBytes >=
+        Math.min(64 * 1024 * 1024, Math.max(65536, this.maxBytes / 8))
+      ) {
+        await this.maintain();
+        this.writtenBytes = 0;
       }
       const values = await waitForEntries(entries, options.signal);
       return {
@@ -185,8 +239,47 @@ class CachedDocumentModel extends BaseEmbeddingModel {
       for (const item of owned) item.reject(error);
       throw error;
     } finally {
+      for (const lock of locks.reverse()) {
+        try {
+          lock.release();
+        } catch {
+          this.stats.errors++;
+        }
+      }
       for (const item of owned)
         inFlight.delete(join(this.directory, `${item.key}.json`));
+    }
+  }
+
+  private async acquire(
+    key: string,
+    signal?: AbortSignal,
+  ): Promise<FileLock | undefined> {
+    const started = Date.now();
+    while (true) {
+      signal?.throwIfAborted();
+      try {
+        await assertPrivateCacheDirectory(this.directory);
+        return acquireReadWriteLock(
+          join(this.directory, ".locks", key),
+          "write",
+          { operation: "embedding-cache" },
+        );
+      } catch (error) {
+        if (
+          !(
+            error &&
+            typeof error === "object" &&
+            "code" in error &&
+            error.code === "ZVEC_GREP.ENGINE.LOCK.BUSY"
+          ) ||
+          Date.now() - started > 30_000
+        ) {
+          this.stats.errors++;
+          return;
+        }
+        await delay(25, undefined, { signal });
+      }
     }
   }
 
@@ -236,9 +329,9 @@ class CachedDocumentModel extends BaseEmbeddingModel {
         ...entry,
         digest: hash(JSON.stringify([entry.vector, entry.truncated])),
       };
-      await replaceFileAtomically(target, JSON.stringify(record), {
-        mode: 0o600,
-      });
+      const serialized = JSON.stringify(record);
+      await replaceFileAtomically(target, serialized, { mode: 0o600 });
+      this.writtenBytes += Buffer.byteLength(serialized);
     } catch {
       this.stats.errors++;
     }

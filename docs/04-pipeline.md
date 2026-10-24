@@ -165,6 +165,10 @@ See [Embedding models](./07-embedding.md) before choosing or changing a model.
 
 Pinned local models can reuse document vectors within one repository/user cache while each worktree keeps its own independent index. Switching back to previously indexed inputs can avoid inference; modified context, model revisions, or dimensions cannot cross-hit. Cache loss or corruption falls back to normal computation. The CLI reports reused/computed inputs, and completed waiting MCP index requests can include `embedding_cache` statistics. See [repository-scoped vector reuse](worktree-vector-cache.md) for scope, safety, cleanup, and verification.
 
+### Ignore rules and explicit paths
+
+Normal indexing respects `.gitignore` and built-in dependency/build exclusions (`node_modules`, `dist`, `target`, and others). `noIgnore`/`--no-ignore` explicitly disables those rules; it is not the switch for enabling them. An explicit include can restore its named path, but entering an ignored parent to find that file must not restore other descendants. Child ignore-file negations cannot escape an excluded parent. Explicit excludes remain stronger than includes. Full scans, changed-file scans, and watcher eligibility use the same rule evaluation. Direct file roots remain explicit user selections.
+
 ## 3. Query through one search layer
 
 The shortest query uses hybrid ranked retrieval:

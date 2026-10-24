@@ -96,6 +96,7 @@ const MANAGED_RG_OUTPUT_OPTIONS = new Set([
 const ACTION_FLAGS = new Map<string, CliCommand>([
   ["--index", "index"],
   ["--status", "status"],
+  ["--cache", "cache"],
   ["--install", "install"],
   ["--uninstall", "uninstall"],
   ["--config", "config"],
@@ -107,6 +108,7 @@ const COMMAND_SHAPED_QUERY_WORDS = new Set(["query", "search"]);
 const COMMAND_SHAPED_ACTION_WORDS = new Map<string, string>([
   ["index", "--index"],
   ["status", "--status"],
+  ["cache", "--cache"],
   ["install", "--install"],
   ["uninstall", "--uninstall"],
   ["config", "--config"],
@@ -681,6 +683,13 @@ function validateCliShape(
   options: CliOptions,
   positionals: readonly string[],
 ): void {
+  if (
+    command === "cache" &&
+    (positionals.length !== 1 ||
+      !["status", "prune", "clear"].includes(positionals[0]!))
+  ) {
+    throw new Error("zg --cache requires status, prune, or clear");
+  }
   if (command === "auth") {
     if (!options.authAction) {
       throw new Error("zg --auth requires grant, status, or revoke");

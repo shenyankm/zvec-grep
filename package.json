@@ -52,6 +52,7 @@
     "test:run:root": "node --test --test-concurrency=1 test/*.test.mjs",
     "test:run:unit": "node --test --test-concurrency=1 test/unit/*.test.mjs test/unit/extraction/*.test.mjs test/unit/models/*.test.mjs",
     "test:unit": "npm run build && npm run test:run:unit",
+    "test:environments": "npm run build && node --expose-gc --test --test-concurrency=1 test/environments/*.test.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && npm run test:all"
   },

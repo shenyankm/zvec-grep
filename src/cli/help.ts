@@ -39,6 +39,10 @@ const ENVIRONMENT_VARIABLES = {
   ZVEC_GREP_API_KEY: "Embedding provider credential fallback",
   ZVEC_GREP_ENDPOINT: "Remote Embedding endpoint fallback",
   ZVEC_GREP_MODEL_CACHE: "Local embedding model cache directory",
+  ZVEC_GREP_VECTOR_CACHE_MAX_BYTES:
+    "Disposable vector-cache budget; default 536870912 bytes, 0 disables reuse",
+  ZVEC_GREP_VECTOR_CACHE_MAX_AGE_DAYS:
+    "Disposable vector-cache retention; default 30 days",
   ZVEC_GREP_DEVICE: "Local embedding device: auto, cpu, metal, vulkan, or cuda",
   ZVEC_GREP_INDEX_EMBEDDING_CONCURRENCY:
     "Local/remote index-build/update embedding concurrency; explicit index CLI option takes precedence",
@@ -92,6 +96,7 @@ confirm that such a word is intended as literal search input.
 Actions:
   --index        Build, rebuild, or drop the workspace index
   --status       Show workspace and index status
+  --cache        Inspect, prune, or clear the disposable vector cache
   --config       Configure provider credentials and embedding model defaults
   --auth         Manage Workspace Remote Embedding authorization
   --server       Start, stop, inspect, or run the shared MCP server
@@ -246,6 +251,14 @@ stored paths, refresh status, and suggested next action.
 --debug includes model download failure details.
 --check-ready preserves the normal output and exits non-zero unless the
 Workspace index is ready.`;
+    case "cache":
+      return `zg --cache status|prune|clear
+
+Inspect or remove disposable vectors only; workspace indexes are never deleted.
+Defaults: 512 MiB, 30 days, oldest-write-first eviction. Configure with
+ZVEC_GREP_VECTOR_CACHE_MAX_BYTES and ZVEC_GREP_VECTOR_CACHE_MAX_AGE_DAYS.
+A zero-byte budget disables reuse. Automatic pruning runs before/after indexing
+and under write pressure; concurrent jobs can temporarily exceed the budget.`;
     case "config":
       return `Usage:
   zg --config provider set <provider> --api-key <key>

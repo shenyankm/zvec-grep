@@ -75,6 +75,7 @@ export class WorkspaceIndex {
       });
     }
 
+    const startedAt = Date.now();
     const model = this.requireEmbeddingModel("index");
     const cache = await repositoryEmbeddingCache(
       model,
@@ -91,11 +92,19 @@ export class WorkspaceIndex {
       onProgress: options.onProgress,
       signal: options.signal,
     };
-    const result = await (options.changedPaths &&
-    options.changedPaths.length > 0
-      ? indexWorkspacePaths(context, options.changedPaths)
-      : indexWorkspace(context));
-    return cache ? { ...result, embeddingCache: cache.stats } : result;
+    let result: IndexResult;
+    try {
+      result = await (options.changedPaths && options.changedPaths.length > 0
+        ? indexWorkspacePaths(context, options.changedPaths)
+        : indexWorkspace(context));
+    } finally {
+      await cache?.finish();
+    }
+    return {
+      ...result,
+      durationMs: Date.now() - startedAt,
+      ...(cache ? { embeddingCache: cache.stats } : {}),
+    };
   }
 
   status(): Promise<WorkspaceIndexStatus> {
