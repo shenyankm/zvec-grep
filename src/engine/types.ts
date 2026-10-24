@@ -258,6 +258,12 @@ export type TimingEntry = {
   count?: number;
 };
 
+export type EmbeddingCacheStats = {
+  hits: number;
+  computed: number;
+  errors: number;
+};
+
 export type IndexResult = {
   filesScanned: number;
   filesAdded: number;
@@ -268,6 +274,7 @@ export type IndexResult = {
   filesFailed: number;
   entitiesCreated: number;
   durationMs: number;
+  embeddingCache?: EmbeddingCacheStats;
   timings?: readonly TimingEntry[];
   scanDiagnostics?: FileScanDiagnostics;
 };

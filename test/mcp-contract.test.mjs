@@ -814,6 +814,28 @@ test("index returns skipped-file diagnostics only for a debug request", async (t
   );
 });
 
+test("index exposes optional vector-cache statistics in its structured result", async (t) => {
+  const backend = createBackend();
+  const stats = { hits: 12, computed: 3, errors: 0 };
+  backend.index = async (input) => ({
+    root: input.root,
+    jobId: "cache-job",
+    state: "succeeded",
+    reused: false,
+    embeddingCache: stats,
+  });
+  const { client, server } = await connectFull(backend);
+  t.after(async () => {
+    await client.close();
+    await server.close();
+  });
+  const result = await client.callTool({
+    name: "zvec_grep_index",
+    arguments: { root, wait: true },
+  });
+  assert.deepEqual(result.structuredContent.embedding_cache, stats);
+});
+
 test("index authorization keeps the requested model and offers no local fallback", async (t) => {
   const backend = createBackend();
   let receivedInput;

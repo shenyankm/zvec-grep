@@ -173,6 +173,11 @@ export class LlamaCppEmbeddingModel extends BaseEmbeddingModel {
 
     this.info = {
       reference: entry.reference,
+      cacheIdentity: JSON.stringify({
+        version: 1,
+        entry,
+        device: options.device,
+      }),
       provider: entry.provider,
       name: entry.model,
       dimension: entry.dimension,

@@ -50,6 +50,7 @@ export type {
   IndexProgress,
   IndexProgressPhase,
   IndexResult,
+  EmbeddingCacheStats,
   MarkdownEntityMetadata,
   RootPath,
   SkippedFile,

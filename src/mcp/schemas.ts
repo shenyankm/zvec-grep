@@ -451,6 +451,13 @@ export const zvecGrepIndexOutputSchema = z.object({
   action: z.enum(["index", "drop"]).optional(),
   dropped: z.boolean().optional(),
   error: jobErrorSchema.optional(),
+  embedding_cache: z
+    .object({
+      hits: z.number().int().nonnegative(),
+      computed: z.number().int().nonnegative(),
+      errors: z.number().int().nonnegative(),
+    })
+    .optional(),
   scan_diagnostics: z
     .object({
       skippedFiles: z.number().int().nonnegative(),

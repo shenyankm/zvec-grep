@@ -12,6 +12,7 @@ import {
 import { z } from "zod";
 import type {
   FileScanDiagnostics,
+  EmbeddingCacheStats,
   IndexProgress,
   ZvecGrepContextResult,
 } from "../index.js";
@@ -88,6 +89,7 @@ export type ZvecGrepIndexResult = {
   dropped?: boolean;
   error?: ZvecGrepIndexError;
   scanDiagnostics?: FileScanDiagnostics;
+  embeddingCache?: EmbeddingCacheStats;
 };
 
 export type ZvecGrepIndexDropResult = {
@@ -397,6 +399,9 @@ export function registerZvecGrepTools(
               dropped: result.dropped,
               error: result.error,
               scan_diagnostics: result.scanDiagnostics,
+              ...(result.embeddingCache
+                ? { embedding_cache: result.embeddingCache }
+                : {}),
             };
             return toolResult(
               [

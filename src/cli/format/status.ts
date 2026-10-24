@@ -669,6 +669,14 @@ export function printIndexResult(
       failedCount(theme, result.filesFailed),
   );
   printField(theme, "entities", String(result.entitiesCreated));
+  if (result.embeddingCache) {
+    const cache = result.embeddingCache;
+    printField(
+      theme,
+      "vector cache",
+      `${cache.hits} reused, ${cache.computed} computed, ${cache.errors} cache errors`,
+    );
+  }
   printField(
     theme,
     "duration",

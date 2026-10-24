@@ -1,10 +1,12 @@
 export {
   EmbeddingPurpose,
+  BaseEmbeddingModel,
   type CreateEmbeddingModelOptions,
   type EmbeddingModel,
   type EmbeddingModelProgress,
   type EmbeddingModelInfo,
   type EmbeddingOptions,
+  type NormalizedEmbeddingOptions,
   type EmbeddingResult,
 } from "./embeddings.js";
 export { createEmbeddingModel } from "./factory.js";

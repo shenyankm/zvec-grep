@@ -1,4 +1,8 @@
-import type { FileScanDiagnostics, IndexProgress } from "../engine/types.js";
+import type {
+  EmbeddingCacheStats,
+  FileScanDiagnostics,
+  IndexProgress,
+} from "../engine/types.js";
 import { ChangeSet, type ChangeSetSnapshot } from "./change-set.js";
 import type { JobScheduler, IndexJobSnapshot } from "./job-scheduler.js";
 import type { RootRuntime } from "./root-runtime.js";
@@ -17,6 +21,7 @@ export type IndexReconciliationProof = {
   reconciled: boolean;
   reconciliationEpoch: number;
   scanDiagnostics?: FileScanDiagnostics;
+  embeddingCache?: EmbeddingCacheStats;
 };
 
 export class IndexCoordinator {

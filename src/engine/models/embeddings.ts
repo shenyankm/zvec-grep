@@ -53,6 +53,8 @@ export type EmbeddingModelInfo = Readonly<{
   dimension: number;
   metric: "cosine" | "dot" | "euclidean";
   endpoint?: string;
+  /** Immutable weights/preprocessing identity; omit to disable persistent document reuse. */
+  cacheIdentity?: string;
   defaultConcurrency?: number;
   inputKinds: readonly ContentKind[];
   limits: Readonly<{

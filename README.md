@@ -154,6 +154,10 @@ zg query --human "An unseen creature left a few marks. What did the detective in
 zg returns the relevant passages from `sherlock-holmes.txt`, ranked ahead of
 `alice-in-wonderland.txt`.
 
+### Reuse embeddings across branches and worktrees
+
+The Node backend automatically reuses eligible local-model document vectors across branches and linked Git worktrees in the same repository. Each worktree retains its own index and search results; only exact prepared inputs under the same pinned model identity share cached vectors. The CLI reports reused/computed inputs. See [vector-cache scope, safety, and verification](docs/worktree-vector-cache.md).
+
 ### Index embedding concurrency and GPU errors
 
 `zg --index --index-embedding-concurrency <n>` and

@@ -25,6 +25,7 @@ import type {
   SearchPlanResult,
 } from "../types.js";
 import { CURRENT_INDEX_VERSION } from "../types.js";
+import { repositoryEmbeddingCache } from "../pipeline/indexing/embedding-cache.js";
 
 export type WorkspaceIndexOptions = {
   mode: "read" | "write";
@@ -66,7 +67,7 @@ export class WorkspaceIndex {
     return this.info.name;
   }
 
-  index(options: IndexOptions = {}): Promise<IndexResult> {
+  async index(options: IndexOptions = {}): Promise<IndexResult> {
     if (this.storage.readOnly) {
       throw new EngineError("Cannot update a read-only workspace index", {
         code: "ZVEC_GREP.ENGINE.WORKSPACE_INDEX.READ_ONLY",
@@ -74,7 +75,13 @@ export class WorkspaceIndex {
       });
     }
 
-    const embeddingModel = this.requireEmbeddingModel("index");
+    const model = this.requireEmbeddingModel("index");
+    const cache = await repositoryEmbeddingCache(
+      model,
+      this.info,
+      options.signal,
+    );
+    const embeddingModel = cache?.model ?? model;
 
     const context = {
       workspaceIndex: this.info,
@@ -84,9 +91,11 @@ export class WorkspaceIndex {
       onProgress: options.onProgress,
       signal: options.signal,
     };
-    return options.changedPaths && options.changedPaths.length > 0
+    const result = await (options.changedPaths &&
+    options.changedPaths.length > 0
       ? indexWorkspacePaths(context, options.changedPaths)
-      : indexWorkspace(context);
+      : indexWorkspace(context));
+    return cache ? { ...result, embeddingCache: cache.stats } : result;
   }
 
   status(): Promise<WorkspaceIndexStatus> {

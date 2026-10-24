@@ -21,6 +21,7 @@ import type {
 import { resolveEmbeddingReference } from "../engine/models/index.js";
 import type {
   FileScanDiagnostics,
+  EmbeddingCacheStats,
   WorkspaceIndexEmbeddingSchema,
   IndexProgress,
 } from "../engine/types.js";
@@ -334,6 +335,7 @@ export class DaemonBackend implements ZvecGrepDaemonBackend {
     const targetRevision = createsWork
       ? runtime.markDirty()
       : runtime.snapshot().dirtyRevision;
+    let embeddingCache: EmbeddingCacheStats | undefined;
     const submitted = this.scheduler.submit({
       canonicalRoot: runtime.canonicalRoot,
       reason: "manual",
@@ -346,6 +348,7 @@ export class DaemonBackend implements ZvecGrepDaemonBackend {
           options.authorization,
           signal,
         );
+        embeddingCache = proof.embeddingCache;
         this.lastScanDiagnostics.set(
           runtime.canonicalRoot,
           proof.scanDiagnostics,
@@ -377,6 +380,7 @@ export class DaemonBackend implements ZvecGrepDaemonBackend {
       reused: submitted.reused,
       action: "index",
       error: job.error,
+      ...(input.wait && embeddingCache ? { embeddingCache } : {}),
       ...(input.debug === true && input.wait === true
         ? {
             scanDiagnostics: this.lastScanDiagnostics.get(
@@ -791,6 +795,7 @@ export class DaemonBackend implements ZvecGrepDaemonBackend {
     }
     let service: Awaited<ReturnType<typeof createZvecGrep>> | undefined;
     let scanDiagnostics: FileScanDiagnostics | undefined;
+    let embeddingCache: EmbeddingCacheStats | undefined;
     let cleanupPromise: Promise<void> | undefined;
     const cleanup = (): Promise<void> =>
       (cleanupPromise ??= (async () => {
@@ -855,6 +860,7 @@ export class DaemonBackend implements ZvecGrepDaemonBackend {
         }
       });
       scanDiagnostics = result.scanDiagnostics;
+      embeddingCache = result.embeddingCache;
     } finally {
       await cleanup();
     }
@@ -883,6 +889,13 @@ export class DaemonBackend implements ZvecGrepDaemonBackend {
       duration_ms: Date.now() - startedAt,
       scope: input.changedPaths ? "paths" : "reconcile",
       changed_paths: input.changedPaths?.length,
+      ...(embeddingCache
+        ? {
+            vector_cache_hits: embeddingCache.hits,
+            vector_cache_computed: embeddingCache.computed,
+            vector_cache_errors: embeddingCache.errors,
+          }
+        : {}),
     });
     const reconciled = includeFinalStatus && indexStatusIsFresh(after);
     if (includeFinalStatus && !reconciled) {
@@ -892,6 +905,7 @@ export class DaemonBackend implements ZvecGrepDaemonBackend {
       reconciled,
       reconciliationEpoch: proofReconciliationEpoch,
       scanDiagnostics,
+      embeddingCache,
     };
   }
 

@@ -161,6 +161,10 @@ See [Embedding models](./07-embedding.md) before choosing or changing a model.
 
 <a id="querying"></a>
 
+### Reuse across branches and Git worktrees (Node backend)
+
+Pinned local models can reuse document vectors within one repository/user cache while each worktree keeps its own independent index. Switching back to previously indexed inputs can avoid inference; modified context, model revisions, or dimensions cannot cross-hit. Cache loss or corruption falls back to normal computation. The CLI reports reused/computed inputs, and completed waiting MCP index requests can include `embedding_cache` statistics. See [repository-scoped vector reuse](worktree-vector-cache.md) for scope, safety, cleanup, and verification.
+
 ## 3. Query through one search layer
 
 The shortest query uses hybrid ranked retrieval:
